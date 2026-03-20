@@ -1,0 +1,14 @@
+[project]
+name = "sdrone"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "matplotlib>=3.10.8",
+    "mujoco>=3.5.0",
+    "mujoco-python-viewer>=0.1.4",
+    "numpy>=2.4.2",
+    "pynput>=1.8.1",
+    "robot-descriptions>=1.22.0",
+]
