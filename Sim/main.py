@@ -40,7 +40,7 @@ for name in SENSOR_NAMES:
         sensor_addrs[name] = None
 
 # ── Terminal display ───────────────────────────────────────────────────────────
-DISPLAY_LINES = 11  # must match exactly the number of print() calls in display()
+DISPLAY_LINES = 12  # must match exactly the number of print() calls in display()
 _first_display = True
 
 def _bar(d, width=20):
@@ -49,7 +49,7 @@ def _bar(d, width=20):
     filled = int(min(d, 4.0) / 4.0 * width)
     return '█' * filled + '░' * (width - filled)
 
-def display(dists, target, pos, yaw_deg, wp_i):
+def display(dists, target, pos, yaw_deg, wp_i, drone_roll, drone_pitch):
     global _first_display
     if not _first_display:
         print(f'\033[{DISPLAY_LINES}F', end='')  # cursor up N lines, column 0
@@ -59,7 +59,8 @@ def display(dists, target, pos, yaw_deg, wp_i):
         return f'{d:5.2f} m' if d >= 0 else '  oor  '
 
     n = len(WAYPOINTS)
-    print(f'  Drone    X={pos[0]:+.2f}  Y={pos[1]:+.2f}  Z={pos[2]:+.2f}  Yaw={yaw_deg:+5.1f}°   ')
+    print(f'  Drone    X={pos[0]:+.2f}  Y={pos[1]:+.2f}  Z={pos[2]:+.2f}  Yaw={yaw_deg:+5.1f}° ')
+    print(f'  Attitude Roll={np.rad2deg(drone_roll):+5.2f} Pitch={np.rad2deg(drone_pitch):+5.2f}                 ')
     print(f'  Waypoint {wp_i % n + 1}/{n}  →  X={target[0]:+.2f}  Y={target[1]:+.2f}  Z={target[2]:+.2f}   ')
     print(f'  {"─"*48}')
     print(f'  Forward  [{_bar(dists["range_fwd"])}]  {fmt(dists["range_fwd"])}')
@@ -79,15 +80,15 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         step_start = time.time()
 
         # Advance waypoint when close enough
-        # dist_to_wp = np.linalg.norm(data.qpos[:3] - target_pos)
-        # if dist_to_wp < WAYPOINT_THRESHOLD:
-        #     # wp_idx += 1
-        #     target_pos = WAYPOINTS[wp_idx % len(WAYPOINTS)].copy()
+        dist_to_wp = np.linalg.norm(data.qpos[:3] - target_pos)
+        if dist_to_wp < WAYPOINT_THRESHOLD:
+            wp_idx += 1
+            target_pos = WAYPOINTS[wp_idx % len(WAYPOINTS)].copy()
 
         # Set desired position
-        x_des = 0.0
-        y_des = 0.0
-        z_des = 0.5
+        x_des = target_pos[0] #0.5
+        y_des = target_pos[1] #0.0
+        z_des = target_pos[2] #0.5
 
         # PID controller
         # Calculate time step
@@ -100,7 +101,7 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         data.ctrl[0] = np.clip(thrust, 0, 0.35)
 
         # PID loop for desired axis angles (roll and pitch)
-        Kp_acc, Ki_acc, Kd_acc = 3.0, 0.0, 1.5
+        Kp_acc, Ki_acc, Kd_acc = 0.15, 0.01, 0.5
         x_err = x_des - data.qpos[0]
         y_err = y_des - data.qpos[1]
         x_errI = x_errPrev + x_err*dt
@@ -113,14 +114,14 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         ay_des = (y_err * Kp_acc) + (y_errI * Ki_acc) - (data.qvel[1] * Kd_acc)
 
         #Set desired roll and pitch based on desired accelerations
-        roll_des = 0.0 # np.clip(ay_des / 9.81, -0.5, 0.5)  # Roll controls lateral (Y) acceleration
-        pitch_des = 0.0 # np.clip(-ax_des / 9.81, -0.5, 0.5) # Pitch controls longitudinal (X) acceleration
-
+        roll_des = np.clip(ay_des / 9.81, -0.5, 0.5)  # Roll controls lateral (Y) acceleration
+        pitch_des = np.clip(-ax_des / 9.81, -0.5, 0.5) # Pitch controls longitudinal (X) acceleration
 
         # Calculate drone current roll and pitch from orientation quaternion
         q = data.qpos[3:7]  # (w, x, y, z)
-        roll = np.arcsin(2*(q[0]*q[2] - q[3]*q[1]))  
-        pitch = - np.arctan2(2*(q[0]*q[2] - q[1]*q[3]), 1 - 2*(q[2]**2 + q[3]**2))
+        roll  = -np.arctan2(2*(q[0]*q[1] + q[2]*q[3]), 1 - 2*(q[1]**2 + q[2]**2))
+        pitch = -np.arcsin(2*(q[0]*q[2] - q[3]*q[1]))
+        yaw   = np.arctan2(2*(q[0]*q[3] + q[1]*q[2]), 1 - 2*(q[2]**2 + q[3]**2))
 
         roll_err = roll_des - roll
         pitch_err = pitch_des - pitch
@@ -134,10 +135,10 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         pitch_errI = np.clip(pitch_errI, -0.5, 0.5)
 
         # Implement control through roll and pitch
-        disturbance = 0.5 if 5.0< data.time < 5.1 else 0.0
-        Kp, Ki, Kd = 15.0, 0.00, 0.0
-        data.ctrl[1] =  disturbance - np.clip(pitch_err * Kp + pitch_errI * Ki - pitch_D * Kd, -0.5, 0.5)  # x_moment (Pitch)
-        data.ctrl[2] = -np.clip(roll_err * Kp + roll_errI * Ki - roll_D * Kd, -0.5, 0.5) # y_moment (Roll)
+        disturbance = 0.5 if 5.0< data.time < 5.5 else 0.0
+        Kp, Ki, Kd = 5.0, 0.00, 3.0
+        data.ctrl[1] = np.clip(roll_err * Kp + roll_errI * Ki + roll_D * Kd, -0.5, 0.5)  # x_moment (Roll)
+        data.ctrl[2] = np.clip(pitch_err * Kp + pitch_errI * Ki + pitch_D * Kd, -0.5, 0.5) # y_moment (Pitch)
         data.ctrl[3] = 0
 
         # Read sensors
@@ -151,7 +152,7 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
             last_display_time = data.time
             q = data.qpos[3:7]
             yaw = np.arctan2(2*(q[0]*q[3] + q[1]*q[2]), 1 - 2*(q[2]**2 + q[3]**2))
-            display(dists, target_pos, data.qpos[:3], np.degrees(yaw), wp_idx)
+            display(dists, target_pos, data.qpos[:3], np.degrees(yaw), wp_idx, roll,pitch)
 
         mujoco.mj_step(model, data)
         viewer.sync()
