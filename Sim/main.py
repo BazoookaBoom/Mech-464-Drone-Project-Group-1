@@ -12,17 +12,21 @@ y_errPrev = 0.0
 z_errPrev = 0.0
 roll_errPrev = 0.0
 pitch_errPrev = 0.0
+yaw_prev = 0.0
 dt = 0.0
+def angle_diff(a, b):
+    d = a - b
+    return (d + np.pi) % (2*np.pi) - np.pi
 # 0.5 m cube centred at origin, bottom face at Z=0.5, top at Z=1.0
 WAYPOINTS = np.array([
-    [-0.25, -0.25, 0.5],
-    [ 0.25, -0.25, 0.5],
-    [ 0.25,  0.25, 0.5],
-    [-0.25,  0.25, 0.5],
-    [-0.25,  0.25, 1.0],
-    [ 0.25,  0.25, 1.0],
-    [ 0.25, -0.25, 1.0],
-    [-0.25, -0.25, 1.0],
+    [-0.75, -0.75, 0.5],
+    [ 0.75, -0.75, 0.5],
+    [ 0.75,  0.75, 0.5],
+    [-0.75,  0.75, 0.5],
+    [-0.75,  0.75, 1.0],
+    [ 0.75,  0.75, 1.0],
+    [ 0.75, -0.75, 1.0],
+    [-0.75, -0.75, 1.0],
 ])
 WAYPOINT_THRESHOLD = 0.12  # metres — advance to next when within this distance
 wp_idx = 0
@@ -79,16 +83,36 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
     while viewer.is_running():
         step_start = time.time()
 
-        # Advance waypoint when close enough
+        # # Advance waypoint when close enough - Way point navigation
         dist_to_wp = np.linalg.norm(data.qpos[:3] - target_pos)
         if dist_to_wp < WAYPOINT_THRESHOLD:
             wp_idx += 1
             target_pos = WAYPOINTS[wp_idx % len(WAYPOINTS)].copy()
 
-        # Set desired position
-        x_des = target_pos[0] #0.5
-        y_des = target_pos[1] #0.0
-        z_des = target_pos[2] #0.5
+        # Read sensors
+        dists = {
+            name: float(data.sensordata[addr]) if addr is not None else -1.0
+            for name, addr in sensor_addrs.items()
+        }
+
+        # Modify current position to avoid obstacles on route to target
+        for i in range(len(target_pos)):
+            if dists['range_fwd'] >= 0 and dists['range_fwd'] < 0.5 and target_pos[0] > data.qpos[0]:
+                target_pos[0] = data.qpos[0] + dists['range_fwd'] - 0.5
+            if dists['range_back'] >= 0 and dists['range_back'] < 0.5 and target_pos[0] < data.qpos[0]:
+                target_pos[0] = data.qpos[0] - dists['range_back'] + 0.5
+            if dists['range_left'] >= 0 and dists['range_left'] < 0.5 and target_pos[1] > data.qpos[1]:
+                target_pos[1] = data.qpos[1] + dists['range_left'] - 0.5
+            if dists['range_right'] >= 0 and dists['range_right'] < 0.5 and target_pos[1] < data.qpos[1]:
+                target_pos[1] = data.qpos[1] - dists['range_right'] + 0.5
+            if dists['range_up'] >= 0 and dists['range_up'] < 0.5 and target_pos[2] > data.qpos[2]:
+                target_pos[2] = data.qpos[2] + dists['range_up'] - 0.5
+            if dists['range_down'] >= 0 and dists['range_down'] < 0.5 and target_pos[2] < data.qpos[2]:
+                target_pos[2] = data.qpos[2] - dists['range_down'] + 0.5
+
+        x_des = target_pos[0] 
+        y_des = target_pos[1] 
+        z_des = target_pos[2] 
 
         # PID controller
         # Calculate time step
@@ -113,15 +137,23 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         ax_des = (x_err * Kp_acc) + (x_errI * Ki_acc) - (data.qvel[0] * Kd_acc)
         ay_des = (y_err * Kp_acc) + (y_errI * Ki_acc) - (data.qvel[1] * Kd_acc)
 
-        #Set desired roll and pitch based on desired accelerations
-        roll_des = np.clip(ay_des / 9.81, -0.5, 0.5)  # Roll controls lateral (Y) acceleration
-        pitch_des = np.clip(-ax_des / 9.81, -0.5, 0.5) # Pitch controls longitudinal (X) acceleration
-
         # Calculate drone current roll and pitch from orientation quaternion
         q = data.qpos[3:7]  # (w, x, y, z)
         roll  = -np.arctan2(2*(q[0]*q[1] + q[2]*q[3]), 1 - 2*(q[1]**2 + q[2]**2))
         pitch = -np.arcsin(2*(q[0]*q[2] - q[3]*q[1]))
         yaw   = np.arctan2(2*(q[0]*q[3] + q[1]*q[2]), 1 - 2*(q[2]**2 + q[3]**2))
+
+        #Set desired roll and pitch based on desired accelerations
+        roll_des = np.clip(ay_des / 9.81, -0.5, 0.5)  # Roll controls lateral (Y) acceleration
+        pitch_des = np.clip(-ax_des / 9.81, -0.5, 0.5) # Pitch controls longitudinal (X) acceleration
+        vel_norm = np.linalg.norm([data.qvel[0], data.qvel[1]])
+        if vel_norm > 0.05:
+            yaw_des = np.arctan2(data.qvel[1], data.qvel[0])
+        else:
+            yaw_des = yaw
+        alpha = 0.2
+        yaw_des = (1 - alpha) * yaw_prev + alpha * yaw_des  
+        yaw_prev = yaw_des
 
         roll_err = roll_des - roll
         pitch_err = pitch_des - pitch
@@ -133,19 +165,16 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         pitch_errPrev = pitch_err
         roll_errI = np.clip(roll_errI, -0.5, 0.5)
         pitch_errI = np.clip(pitch_errI, -0.5, 0.5)
+        yaw_err = angle_diff(yaw_des, yaw)
+        yaw_D = data.qvel[5]  # yaw rate
 
         # Implement control through roll and pitch
-        disturbance = 0.5 if 5.0< data.time < 5.5 else 0.0
+        disturbance = 0.5 if 5.0< data.time < 5.5 else 0.0 # Ignore - used to tune controller
         Kp, Ki, Kd = 5.0, 0.00, 3.0
+        Kp_yaw, Kd_yaw = 0.0, 0
         data.ctrl[1] = np.clip(roll_err * Kp + roll_errI * Ki + roll_D * Kd, -0.5, 0.5)  # x_moment (Roll)
         data.ctrl[2] = np.clip(pitch_err * Kp + pitch_errI * Ki + pitch_D * Kd, -0.5, 0.5) # y_moment (Pitch)
-        data.ctrl[3] = 0
-
-        # Read sensors
-        dists = {
-            name: float(data.sensordata[addr]) if addr is not None else -1.0
-            for name, addr in sensor_addrs.items()
-        }
+        data.ctrl[3] = 0.01+np.clip(yaw_err * Kp_yaw - yaw_D * Kd_yaw, -0.5, 0.5) # z_moment (Yaw)
 
         # Update terminal at ~5 Hz
         if data.time - last_display_time >= 0.2:
@@ -158,7 +187,6 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         viewer.sync()
 
         elapsed = time.time() - step_start
-
 
         if elapsed < model.opt.timestep:
             time.sleep(model.opt.timestep - elapsed)
