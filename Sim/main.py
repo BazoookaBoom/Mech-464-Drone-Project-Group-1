@@ -3,6 +3,8 @@ import mujoco.viewer
 import numpy as np
 import time
 
+from map import DroneMapper
+
 # Load scene
 model = mujoco.MjModel.from_xml_path('scene.xml')
 data = mujoco.MjData(model)
@@ -44,16 +46,15 @@ for name in SENSOR_NAMES:
         sensor_addrs[name] = None
 
 # ── Terminal display ───────────────────────────────────────────────────────────
-DISPLAY_LINES = 12  # must match exactly the number of print() calls in display()
+DISPLAY_LINES = 13  # must match exactly the number of print() calls in display()
 _first_display = True
-
 def _bar(d, width=20):
     if d < 0:
         return '─' * width
     filled = int(min(d, 4.0) / 4.0 * width)
     return '█' * filled + '░' * (width - filled)
 
-def display(dists, target, pos, yaw_deg, wp_i, drone_roll, drone_pitch):
+def display(dists, target, pos, yaw_deg, wp_i, drone_roll, drone_pitch, n_pts):
     global _first_display
     if not _first_display:
         print(f'\033[{DISPLAY_LINES}F', end='')  # cursor up N lines, column 0
@@ -66,6 +67,7 @@ def display(dists, target, pos, yaw_deg, wp_i, drone_roll, drone_pitch):
     print(f'  Drone    X={pos[0]:+.2f}  Y={pos[1]:+.2f}  Z={pos[2]:+.2f}  Yaw={yaw_deg:+5.1f}° ')
     print(f'  Attitude Roll={np.rad2deg(drone_roll):+5.2f} Pitch={np.rad2deg(drone_pitch):+5.2f}                 ')
     print(f'  Waypoint {wp_i % n + 1}/{n}  →  X={target[0]:+.2f}  Y={target[1]:+.2f}  Z={target[2]:+.2f}   ')
+    print(f'  Map pts: {n_pts}                                          ')
     print(f'  {"─"*48}')
     print(f'  Forward  [{_bar(dists["range_fwd"])}]  {fmt(dists["range_fwd"])}')
     print(f'  Back     [{_bar(dists["range_back"])}]  {fmt(dists["range_back"])}')
@@ -77,116 +79,137 @@ def display(dists, target, pos, yaw_deg, wp_i, drone_roll, drone_pitch):
     print(f'  Ctrl+C to quit                                    ')
 
 # ── Simulation loop ────────────────────────────────────────────────────────────
-with mujoco.viewer.launch_passive(model, data) as viewer:
-    last_display_time = -1.0
+mapper = DroneMapper()
+global _saved
+_saved = False # Guard against saving multiple times if user hits Ctrl+C more than once
 
-    while viewer.is_running():
-        step_start = time.time()
+try:
+    with mujoco.viewer.launch_passive(model, data) as viewer:
+        last_display_time = -1.0
 
-        # # Advance waypoint when close enough - Way point navigation
-        dist_to_wp = np.linalg.norm(data.qpos[:3] - target_pos)
-        if dist_to_wp < WAYPOINT_THRESHOLD:
-            wp_idx += 1
-            target_pos = WAYPOINTS[wp_idx % len(WAYPOINTS)].copy()
+        while viewer.is_running():
+            step_start = time.time()
 
-        # Read sensors
-        dists = {
-            name: float(data.sensordata[addr]) if addr is not None else -1.0
-            for name, addr in sensor_addrs.items()
-        }
+            # # Advance waypoint when close enough - Way point navigation
+            dist_to_wp = np.linalg.norm(data.qpos[:3] - target_pos)
+            if dist_to_wp < WAYPOINT_THRESHOLD:
+                wp_idx += 1
+                target_pos = WAYPOINTS[wp_idx % len(WAYPOINTS)].copy()
 
-        # Modify current position to avoid obstacles on route to target
-        for i in range(len(target_pos)):
-            if dists['range_fwd'] >= 0 and dists['range_fwd'] < 0.5 and target_pos[0] > data.qpos[0]:
-                target_pos[0] = data.qpos[0] + dists['range_fwd'] - 0.5
-            if dists['range_back'] >= 0 and dists['range_back'] < 0.5 and target_pos[0] < data.qpos[0]:
-                target_pos[0] = data.qpos[0] - dists['range_back'] + 0.5
-            if dists['range_left'] >= 0 and dists['range_left'] < 0.5 and target_pos[1] > data.qpos[1]:
-                target_pos[1] = data.qpos[1] + dists['range_left'] - 0.5
-            if dists['range_right'] >= 0 and dists['range_right'] < 0.5 and target_pos[1] < data.qpos[1]:
-                target_pos[1] = data.qpos[1] - dists['range_right'] + 0.5
-            if dists['range_up'] >= 0 and dists['range_up'] < 0.5 and target_pos[2] > data.qpos[2]:
-                target_pos[2] = data.qpos[2] + dists['range_up'] - 0.5
-            if dists['range_down'] >= 0 and dists['range_down'] < 0.5 and target_pos[2] < data.qpos[2]:
-                target_pos[2] = data.qpos[2] - dists['range_down'] + 0.5
+            # Read sensors
+            dists = {
+                name: float(data.sensordata[addr]) if addr is not None else -1.0
+                for name, addr in sensor_addrs.items()
+            }
 
-        x_des = target_pos[0] 
-        y_des = target_pos[1] 
-        z_des = target_pos[2] 
+            mapper.update(data, model)
 
-        # PID controller
-        # Calculate time step
-        dt = model.opt.timestep
+            # Modify current position to avoid obstacles on route to target
+            for i in range(len(target_pos)):
+                if dists['range_fwd'] >= 0 and dists['range_fwd'] < 0.5 and target_pos[0] > data.qpos[0]:
+                    target_pos[0] = data.qpos[0] + dists['range_fwd'] - 0.5
+                if dists['range_back'] >= 0 and dists['range_back'] < 0.5 and target_pos[0] < data.qpos[0]:
+                    target_pos[0] = data.qpos[0] - dists['range_back'] + 0.5
+                if dists['range_left'] >= 0 and dists['range_left'] < 0.5 and target_pos[1] > data.qpos[1]:
+                    target_pos[1] = data.qpos[1] + dists['range_left'] - 0.5
+                if dists['range_right'] >= 0 and dists['range_right'] < 0.5 and target_pos[1] < data.qpos[1]:
+                    target_pos[1] = data.qpos[1] - dists['range_right'] + 0.5
+                if dists['range_up'] >= 0 and dists['range_up'] < 0.5 and target_pos[2] > data.qpos[2]:
+                    target_pos[2] = data.qpos[2] + dists['range_up'] - 0.5
+                if dists['range_down'] >= 0 and dists['range_down'] < 0.5 and target_pos[2] < data.qpos[2]:
+                    target_pos[2] = data.qpos[2] - dists['range_down'] + 0.5
 
-        # Set thrust to control altitude (Z)
-        z_err = z_des - data.qpos[2]
-        z_vel = data.qvel[2]
-        thrust = 0.26487 + (z_err * 3.0) - (z_vel * 1.5)
-        data.ctrl[0] = np.clip(thrust, 0, 0.35)
+            x_des = target_pos[0] 
+            y_des = target_pos[1] 
+            z_des = target_pos[2] 
 
-        # PID loop for desired axis angles (roll and pitch)
-        Kp_acc, Ki_acc, Kd_acc = 0.15, 0.01, 0.5
-        x_err = x_des - data.qpos[0]
-        y_err = y_des - data.qpos[1]
-        x_errI = x_errPrev + x_err*dt
-        y_errI = y_errPrev + y_err*dt
-        x_errI = np.clip(x_errI, -0.5, 0.5)
-        y_errI = np.clip(y_errI, -0.5, 0.5)
-        x_errPrev = x_err
-        y_errPrev = y_err
-        ax_des = (x_err * Kp_acc) + (x_errI * Ki_acc) - (data.qvel[0] * Kd_acc)
-        ay_des = (y_err * Kp_acc) + (y_errI * Ki_acc) - (data.qvel[1] * Kd_acc)
+            # PID controller
+            # Calculate time step
+            dt = model.opt.timestep
 
-        # Calculate drone current roll and pitch from orientation quaternion
-        q = data.qpos[3:7]  # (w, x, y, z)
-        roll  = -np.arctan2(2*(q[0]*q[1] + q[2]*q[3]), 1 - 2*(q[1]**2 + q[2]**2))
-        pitch = -np.arcsin(2*(q[0]*q[2] - q[3]*q[1]))
-        yaw   = np.arctan2(2*(q[0]*q[3] + q[1]*q[2]), 1 - 2*(q[2]**2 + q[3]**2))
+            # Set thrust to control altitude (Z)
+            z_err = z_des - data.qpos[2]
+            z_vel = data.qvel[2]
+            thrust = 0.26487 + (z_err * 3.0) - (z_vel * 1.5)
+            data.ctrl[0] = np.clip(thrust, 0, 0.35)
 
-        #Set desired roll and pitch based on desired accelerations
-        roll_des = np.clip(ay_des / 9.81, -0.5, 0.5)  # Roll controls lateral (Y) acceleration
-        pitch_des = np.clip(-ax_des / 9.81, -0.5, 0.5) # Pitch controls longitudinal (X) acceleration
-        vel_norm = np.linalg.norm([data.qvel[0], data.qvel[1]])
-        if vel_norm > 0.05:
-            yaw_des = np.arctan2(data.qvel[1], data.qvel[0])
-        else:
-            yaw_des = yaw
-        alpha = 0.2
-        yaw_des = (1 - alpha) * yaw_prev + alpha * yaw_des  
-        yaw_prev = yaw_des
+            # PID loop for desired axis angles (roll and pitch)
+            Kp_acc, Ki_acc, Kd_acc = 0.15, 0.01, 0.5
+            x_err = x_des - data.qpos[0]
+            y_err = y_des - data.qpos[1]
+            x_errI = x_errPrev + x_err*dt
+            y_errI = y_errPrev + y_err*dt
+            x_errI = np.clip(x_errI, -0.5, 0.5)
+            y_errI = np.clip(y_errI, -0.5, 0.5)
+            x_errPrev = x_err
+            y_errPrev = y_err
+            ax_des = (x_err * Kp_acc) + (x_errI * Ki_acc) - (data.qvel[0] * Kd_acc)
+            ay_des = (y_err * Kp_acc) + (y_errI * Ki_acc) - (data.qvel[1] * Kd_acc)
 
-        roll_err = roll_des - roll
-        pitch_err = pitch_des - pitch
-        roll_errI = roll_errPrev + roll_err*dt
-        pitch_errI = pitch_errPrev + pitch_err*dt
-        roll_D = data.qvel[3]  # roll rate
-        pitch_D = data.qvel[4]  # pitch rate
-        roll_errPrev = roll_err
-        pitch_errPrev = pitch_err
-        roll_errI = np.clip(roll_errI, -0.5, 0.5)
-        pitch_errI = np.clip(pitch_errI, -0.5, 0.5)
-        yaw_err = angle_diff(yaw_des, yaw)
-        yaw_D = data.qvel[5]  # yaw rate
+            # Calculate drone current roll and pitch from orientation quaternion
+            q = data.qpos[3:7]  # (w, x, y, z)
+            roll  = -np.arctan2(2*(q[0]*q[1] + q[2]*q[3]), 1 - 2*(q[1]**2 + q[2]**2))
+            pitch = -np.arcsin(2*(q[0]*q[2] - q[3]*q[1]))
+            yaw   = np.arctan2(2*(q[0]*q[3] + q[1]*q[2]), 1 - 2*(q[2]**2 + q[3]**2))
 
-        # Implement control through roll and pitch
-        disturbance = 0.5 if 5.0< data.time < 5.5 else 0.0 # Ignore - used to tune controller
-        Kp, Ki, Kd = 5.0, 0.00, 3.0
-        Kp_yaw, Kd_yaw = 0.0, 0
-        data.ctrl[1] = np.clip(roll_err * Kp + roll_errI * Ki + roll_D * Kd, -0.5, 0.5)  # x_moment (Roll)
-        data.ctrl[2] = np.clip(pitch_err * Kp + pitch_errI * Ki + pitch_D * Kd, -0.5, 0.5) # y_moment (Pitch)
-        data.ctrl[3] = 0.01+np.clip(yaw_err * Kp_yaw - yaw_D * Kd_yaw, -0.5, 0.5) # z_moment (Yaw)
+            #Set desired roll and pitch based on desired accelerations
+            roll_des = np.clip(ay_des / 9.81, -0.5, 0.5)  # Roll controls lateral (Y) acceleration
+            pitch_des = np.clip(-ax_des / 9.81, -0.5, 0.5) # Pitch controls longitudinal (X) acceleration
+            vel_norm = np.linalg.norm([data.qvel[0], data.qvel[1]])
+            if vel_norm > 0.05:
+                yaw_des = np.arctan2(data.qvel[1], data.qvel[0])
+            else:
+                yaw_des = yaw
+            alpha = 0.2
+            yaw_des = (1 - alpha) * yaw_prev + alpha * yaw_des  
+            yaw_prev = yaw_des
 
-        # Update terminal at ~5 Hz
-        if data.time - last_display_time >= 0.2:
-            last_display_time = data.time
-            q = data.qpos[3:7]
-            yaw = np.arctan2(2*(q[0]*q[3] + q[1]*q[2]), 1 - 2*(q[2]**2 + q[3]**2))
-            display(dists, target_pos, data.qpos[:3], np.degrees(yaw), wp_idx, roll,pitch)
+            roll_err = roll_des - roll
+            pitch_err = pitch_des - pitch
+            roll_errI = roll_errPrev + roll_err*dt
+            pitch_errI = pitch_errPrev + pitch_err*dt
+            roll_D = data.qvel[3]  # roll rate
+            pitch_D = data.qvel[4]  # pitch rate
+            roll_errPrev = roll_err
+            pitch_errPrev = pitch_err
+            roll_errI = np.clip(roll_errI, -0.5, 0.5)
+            pitch_errI = np.clip(pitch_errI, -0.5, 0.5)
+            yaw_err = angle_diff(yaw_des, yaw)
+            yaw_D = data.qvel[5]  # yaw rate
 
-        mujoco.mj_step(model, data)
-        viewer.sync()
+            # Implement control through roll and pitch
+            disturbance = 0.5 if 5.0< data.time < 5.5 else 0.0 # Ignore - used to tune controller
+            Kp, Ki, Kd = 5.0, 0.00, 3.0
+            Kp_yaw, Kd_yaw = 0.0, 0
+            data.ctrl[1] = np.clip(roll_err * Kp + roll_errI * Ki + roll_D * Kd, -0.5, 0.5)  # x_moment (Roll)
+            data.ctrl[2] = np.clip(pitch_err * Kp + pitch_errI * Ki + pitch_D * Kd, -0.5, 0.5) # y_moment (Pitch)
+            data.ctrl[3] = 0.01+np.clip(yaw_err * Kp_yaw - yaw_D * Kd_yaw, -0.5, 0.5) # z_moment (Yaw)
+            #data.ctrl[3] = 0.01 # Keep yaw moment at small constant to help stabilize yaw
 
-        elapsed = time.time() - step_start
+            # Update terminal at ~5 Hz
+            if data.time - last_display_time >= 0.2:
+                last_display_time = data.time
+                q = data.qpos[3:7]
+                yaw = np.arctan2(2*(q[0]*q[3] + q[1]*q[2]), 1 - 2*(q[2]**2 + q[3]**2))
+                display(dists, target_pos, data.qpos[:3], np.degrees(yaw), wp_idx, roll,pitch, mapper.count)
 
-        if elapsed < model.opt.timestep:
-            time.sleep(model.opt.timestep - elapsed)
+            mujoco.mj_step(model, data)
+            viewer.sync()
+
+            elapsed = time.time() - step_start
+
+            if elapsed < model.opt.timestep:
+                time.sleep(model.opt.timestep - elapsed)
+
+
+except KeyboardInterrupt:
+    pass
+
+finally:
+    if not _saved:
+        _saved = True
+        print('\n[mapper] Flight ended — saving...')
+        mapper.save('flight_map')
+        mapper.plot_topdown('flight_map_topdown.png', resolution=0.05, waypoints=WAYPOINTS)
+        #mapper.plot_3d(waypoints=WAYPOINTS)
+        print('[mapper] Done.')
