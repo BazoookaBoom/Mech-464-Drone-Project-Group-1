@@ -19,17 +19,30 @@ dt = 0.0
 def angle_diff(a, b):
     d = a - b
     return (d + np.pi) % (2*np.pi) - np.pi
-# 0.5 m cube centred at origin, bottom face at Z=0.5, top at Z=1.0
-WAYPOINTS = np.array([
-    [-0.75, -0.75, 0.5],
-    [ 0.75, -0.75, 0.5],
-    [ 0.75,  0.75, 0.5],
-    [-0.75,  0.75, 0.5],
-    [-0.75,  0.75, 1.0],
-    [ 0.75,  0.75, 1.0],
-    [ 0.75, -0.75, 1.0],
-    [-0.75, -0.75, 1.0],
+
+# make waypoints to fly in a 2.5x2.5 cube at intervals of 1m at z = 0.5, 1.0 and 1.5 m
+WAYPOINTS = np.array([# make waypoints to scan entire world space
+    [0, 0, 0.5],
+    [2.5,2.5,0.5],
+    [2.5, -2.5, 0.5],
+    [-2.5,-2.5,0.5],
+    [-2.5, 2.5, 0.5],
+    [-2.5,2.5,1.0],
+    [-2.5,-2.5,1.0],
+    [2.5,-2.5,1.0],
+    [2.5,2.5,1.0],
+    [2.5,2.5,1.5],
+    [2.5,-2.5,1.5],
+    [-2.5,-2.5,1.5],
+    [-2.5, 2.5, 1.5],
+
+
+
 ])
+
+    
+
+
 WAYPOINT_THRESHOLD = 0.12  # metres — advance to next when within this distance
 wp_idx = 0
 target_pos = WAYPOINTS[wp_idx].copy()
@@ -116,12 +129,17 @@ try:
                     target_pos[1] = data.qpos[1] - dists['range_right'] + 0.5
                 if dists['range_up'] >= 0 and dists['range_up'] < 0.5 and target_pos[2] > data.qpos[2]:
                     target_pos[2] = data.qpos[2] + dists['range_up'] - 0.5
+                    target_pos[1] = data.qpos[1] + 0.5
                 if dists['range_down'] >= 0 and dists['range_down'] < 0.5 and target_pos[2] < data.qpos[2]:
                     target_pos[2] = data.qpos[2] - dists['range_down'] + 0.5
 
             x_des = target_pos[0] 
             y_des = target_pos[1] 
             z_des = target_pos[2] 
+
+            # x_des = 0
+            # y_des = 2
+            # z_des = 1.0
 
             # PID controller
             # Calculate time step
@@ -143,14 +161,16 @@ try:
             y_errI = np.clip(y_errI, -0.5, 0.5)
             x_errPrev = x_err
             y_errPrev = y_err
-            ax_des = (x_err * Kp_acc) + (x_errI * Ki_acc) - (data.qvel[0] * Kd_acc)
-            ay_des = (y_err * Kp_acc) + (y_errI * Ki_acc) - (data.qvel[1] * Kd_acc)
+            ax_desW = (x_err * Kp_acc) + (x_errI * Ki_acc) - (data.qvel[0] * Kd_acc) # Desired x acceleration in world frame
+            ay_desW = (y_err * Kp_acc) + (y_errI * Ki_acc) - (data.qvel[1] * Kd_acc) # Desired y acceleration in world frame
 
             # Calculate drone current roll and pitch from orientation quaternion
             q = data.qpos[3:7]  # (w, x, y, z)
             roll  = -np.arctan2(2*(q[0]*q[1] + q[2]*q[3]), 1 - 2*(q[1]**2 + q[2]**2))
             pitch = -np.arcsin(2*(q[0]*q[2] - q[3]*q[1]))
             yaw   = np.arctan2(2*(q[0]*q[3] + q[1]*q[2]), 1 - 2*(q[2]**2 + q[3]**2))
+            ax_des = ax_desW * np.cos(yaw) + ay_desW * np.sin(yaw)  # Rotate to body frame
+            ay_des = -ax_desW * np.sin(yaw) + ay_desW * np.cos(yaw)
 
             #Set desired roll and pitch based on desired accelerations
             roll_des = np.clip(ay_des / 9.81, -0.5, 0.5)  # Roll controls lateral (Y) acceleration
@@ -159,10 +179,12 @@ try:
             if vel_norm > 0.05:
                 yaw_des = np.arctan2(data.qvel[1], data.qvel[0])
             else:
-                yaw_des = yaw
-            alpha = 0.2
-            yaw_des = (1 - alpha) * yaw_prev + alpha * yaw_des  
+                yaw_des = yaw_prev  
+
+            # alpha = 0.2
+            # yaw_des = (1 - alpha) * yaw_prev + alpha * yaw_des  
             yaw_prev = yaw_des
+            # yaw_des = np.pi/2 # Using this to test 
 
             roll_err = roll_des - roll
             pitch_err = pitch_des - pitch
@@ -179,12 +201,13 @@ try:
 
             # Implement control through roll and pitch
             disturbance = 0.5 if 5.0< data.time < 5.5 else 0.0 # Ignore - used to tune controller
-            Kp, Ki, Kd = 5.0, 0.00, 3.0
-            Kp_yaw, Kd_yaw = 0.0, 0
+            Kp, Ki, Kd = 5.0, 0.00, 3.0 
+            Kp_yaw, Kd_yaw = 6.5, 10.0
+
             data.ctrl[1] = np.clip(roll_err * Kp + roll_errI * Ki + roll_D * Kd, -0.5, 0.5)  # x_moment (Roll)
             data.ctrl[2] = np.clip(pitch_err * Kp + pitch_errI * Ki + pitch_D * Kd, -0.5, 0.5) # y_moment (Pitch)
-            data.ctrl[3] = 0.01+np.clip(yaw_err * Kp_yaw - yaw_D * Kd_yaw, -0.5, 0.5) # z_moment (Yaw)
-            #data.ctrl[3] = 0.01 # Keep yaw moment at small constant to help stabilize yaw
+            data.ctrl[3] =  - np.clip(yaw_err * Kp_yaw - yaw_D * Kd_yaw, -0.5, 0.5) # z_moment (Yaw)
+    
 
             # Update terminal at ~5 Hz
             if data.time - last_display_time >= 0.2:
