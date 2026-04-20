@@ -119,47 +119,39 @@
       <site name="lidar_up"    pos="0 0 0.02"                  size="0.003" rgba="1 0 1 1"/>
       <site name="lidar_down"  pos="0 0 0.02" euler="180 0 0"  size="0.003" rgba="0 1 1 1"/>
     </body>
-    <!-- Box obstacle -->
+    <!-- Obstacles -->
     <body pos="1 0 0.2">
         <geom type="box" size="0.2 0.2 0.5" rgba="1 0 0 1"/>
     </body>
 
-    <!-- Box obstacle -->
-    <body pos="2 2 0.2">
+    <!-- <body pos="2 2 0.2">
         <geom type="box" size="0.2 0.2 2.5" rgba="1 0 0 1"/>
-    </body>
+    </body> -->
 
-    <!-- Box obstacle -->
     <body pos="2 -2 0.2">
         <geom type="box" size="0.2 0.2 0.25" rgba="1 0 0 1"/>
     </body>
 
-    <!-- Box obstacle -->
-    <body pos="2.5 0 0.2">
+    <!-- <body pos="2.5 0 0.2">
         <geom type="box" size="0.1 0.1 1" rgba="1 0 0 1"/>
-    </body>
+    </body> -->
 
-    <!-- Cylinder obstacle -->
     <body pos="-2 2 0.3">
         <geom type="cylinder" size="0.1 0.25" rgba="0 0 1 1"/>
     </body>
 
-    <!-- Cylinder obstacle -->
     <body pos="0.5 2 0.3">
         <geom type="cylinder" size="0.2 0.75" rgba="0 0 1 1"/>
     </body>
 
-    <!-- Cylinder obstacle -->
     <body pos="0 -2 0.3">
         <geom type="cylinder" size="0.5 0.5" rgba="0 0 1 1"/>
     </body>
 
-    <!-- Cylinder obstacle -->
     <body pos="-2 -2 0.3">
         <geom type="cylinder" size="1 0.125" rgba="0 0 1 1"/>
     </body>
 
-    <!--Table obstacle -->
     <body pos="0 1 0">
         <geom type="box" size="0.125 0.125 0.75" rgba="0 1 0 1"/>
     </body>
