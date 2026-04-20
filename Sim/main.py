@@ -22,22 +22,33 @@ def angle_diff(a, b):
 
 # make waypoints to fly in a 2.5x2.5 cube at intervals of 1m at z = 0.5, 1.0 and 1.5 m
 WAYPOINTS = np.array([# make waypoints to scan entire world space
-    [0, 0, 0.5],
-    [2.5,2.5,0.5],
-    [2.5, -2.5, 0.5],
-    [-2.5,-2.5,0.5],
-    [-2.5, 2.5, 0.5],
-    [-2.5,2.5,1.0],
-    [-2.5,-2.5,1.0],
-    [2.5,-2.5,1.0],
-    [2.5,2.5,1.0],
-    [2.5,2.5,1.5],
-    [2.5,-2.5,1.5],
-    [-2.5,-2.5,1.5],
-    [-2.5, 2.5, 1.5],
+    
 
+    # ── Z = 0.5 m — hug the perimeter only, avoid centre ──
+    [ 0,  0.3,  0.5],   # east wall
+    [ 2.5, 0.5, 0.5],
+    [ 2.5,  2.5,  0.5],   # NE corner
+    [ 0.0,  2.5,  0.5],   # north wall centre
+    [-2.5,  2.5,  0.5],   # NW corner
+    [-2.5,  0.0,  0.5],   # west wall
+    [-2.5, -2.5,  0.5],   # SW corner
+    [ 0.0, -2.5,  0.5],   # south wall centre
+    [ 2.5, -2.5,  0.5],   # SE corner
+    [ 2.5,  0.0,  0.5],   # back to east
 
+    # # ── Z = 1.0 m — perimeter + one centre pass ──
+    # [ 2.5,  2.5,  1.0],   # NE corner
+    # [-2.5,  2.5,  1.0],   # NW corner
+    # [-2.5, -2.5,  1.0],   # SW corner
+    # [ 2.5, -2.5,  1.0],   # SE corner
+    # [ 2.5,  2.5,  1.0],   # back to NE
 
+    # # ── Z = 1.5 m — safe to cross centre at this height ──
+    # [ 0.0,  2.5,  1.5],   # north
+    # [-2.5,  0.0,  1.5],   # west
+    # [ 0.0, -2.5,  1.5],   # south
+    # [ 2.5,  0.0,  1.5],   # east
+    # [ 0.0,  0.0,  1.5],   # centre cross at max height
 ])
 
     
@@ -151,8 +162,12 @@ try:
             thrust = 0.26487 + (z_err * 3.0) - (z_vel * 1.5)
             data.ctrl[0] = np.clip(thrust, 0, 0.35)
 
-            # PID loop for desired axis angles (roll and pitch)
+            # ---- PID Parameters ----
             Kp_acc, Ki_acc, Kd_acc = 0.15, 0.01, 0.5
+            Kp, Ki, Kd = 5.0, 0.00, 3.0 
+            Kp_yaw, Kd_yaw = 3, 1.0 #was 6.5 and 10
+
+            # PID loop for desired axis angles (roll and pitch)
             x_err = x_des - data.qpos[0]
             y_err = y_des - data.qpos[1]
             x_errI = x_errPrev + x_err*dt
@@ -176,7 +191,7 @@ try:
             roll_des = np.clip(ay_des / 9.81, -0.5, 0.5)  # Roll controls lateral (Y) acceleration
             pitch_des = np.clip(-ax_des / 9.81, -0.5, 0.5) # Pitch controls longitudinal (X) acceleration
             vel_norm = np.linalg.norm([data.qvel[0], data.qvel[1]])
-            if vel_norm > 0.05:
+            if vel_norm > 0.3: #from 0.05
                 yaw_des = np.arctan2(data.qvel[1], data.qvel[0])
             else:
                 yaw_des = yaw_prev  
@@ -201,8 +216,7 @@ try:
 
             # Implement control through roll and pitch
             disturbance = 0.5 if 5.0< data.time < 5.5 else 0.0 # Ignore - used to tune controller
-            Kp, Ki, Kd = 5.0, 0.00, 3.0 
-            Kp_yaw, Kd_yaw = 6.5, 10.0
+            #Moved the PID parameters up
 
             data.ctrl[1] = np.clip(roll_err * Kp + roll_errI * Ki + roll_D * Kd, -0.5, 0.5)  # x_moment (Roll)
             data.ctrl[2] = np.clip(pitch_err * Kp + pitch_errI * Ki + pitch_D * Kd, -0.5, 0.5) # y_moment (Pitch)
