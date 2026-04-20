@@ -22,26 +22,29 @@ def angle_diff(a, b):
 
 # make waypoints to fly in a 2.5x2.5 cube at intervals of 1m at z = 0.5, 1.0 and 1.5 m
 WAYPOINTS = np.array([# make waypoints to scan entire world space
-    
-
-    # ── Z = 0.5 m — hug the perimeter only, avoid centre ──
-    [ 0,  0.3,  0.5],   # east wall
-    [ 2.5, 0.5, 0.5],
-    [ 2.5,  2.5,  0.5],   # NE corner
-    [ 0.0,  2.5,  0.5],   # north wall centre
-    [-2.5,  2.5,  0.5],   # NW corner
-    [-2.5,  0.0,  0.5],   # west wall
-    [-2.5, -2.5,  0.5],   # SW corner
-    [ 0.0, -2.5,  0.5],   # south wall centre
-    [ 2.5, -2.5,  0.5],   # SE corner
-    [ 2.5,  0.0,  0.5],   # back to east
-
-    # # ── Z = 1.0 m — perimeter + one centre pass ──
-    # [ 2.5,  2.5,  1.0],   # NE corner
-    # [-2.5,  2.5,  1.0],   # NW corner
-    # [-2.5, -2.5,  1.0],   # SW corner
-    # [ 2.5, -2.5,  1.0],   # SE corner
-    # [ 2.5,  2.5,  1.0],   # back to NE
+    [0, 0, 0.5],
+    [2.5,2.5,0.5],
+    [2.5, -2.5, 0.5],
+    [2.0,-2.5,0.5],
+    [2.0, 2.5, 0.5],
+    [1.5,2.5,0.5],
+    [1.5,-2.5,0.5],
+    [1.0,-2.5,0.5],
+    [1.0,2.5,0.5],
+    [0.5,2.5,0.5],
+    [0.5,-2.5,0.5],
+    [0,-2.5,0.5],
+    [0,2.5,0.5],
+    [-0.5,2.5,0.5],
+    [-0.5,-2.5,0.5],
+    [-1.0,-2.5,0.5],
+    [-1.0,2.5,0.5], 
+    [-1.5,2.5,0.5],
+    [-1.5,-2.5,0.5],    
+    [-2,-2.5,0.5],
+    [-2,2.5,0.5],
+    [-2.5,2.5,0.5],
+    [-2.5,-2.5,0.5],
 
     # # ── Z = 1.5 m — safe to cross centre at this height ──
     # [ 0.0,  2.5,  1.5],   # north
@@ -119,6 +122,8 @@ try:
             if dist_to_wp < WAYPOINT_THRESHOLD:
                 wp_idx += 1
                 target_pos = WAYPOINTS[wp_idx % len(WAYPOINTS)].copy()
+            else:
+                target_pos = WAYPOINTS[wp_idx%len(WAYPOINTS)].copy()
 
             # Read sensors
             dists = {
@@ -130,18 +135,21 @@ try:
 
             # Modify current position to avoid obstacles on route to target
             for i in range(len(target_pos)):
-                if dists['range_fwd'] >= 0 and dists['range_fwd'] < 0.5 and target_pos[0] > data.qpos[0]:
-                    target_pos[0] = data.qpos[0] + dists['range_fwd'] - 0.5
-                if dists['range_back'] >= 0 and dists['range_back'] < 0.5 and target_pos[0] < data.qpos[0]:
-                    target_pos[0] = data.qpos[0] - dists['range_back'] + 0.5
-                if dists['range_left'] >= 0 and dists['range_left'] < 0.5 and target_pos[1] > data.qpos[1]:
-                    target_pos[1] = data.qpos[1] + dists['range_left'] - 0.5
-                if dists['range_right'] >= 0 and dists['range_right'] < 0.5 and target_pos[1] < data.qpos[1]:
-                    target_pos[1] = data.qpos[1] - dists['range_right'] + 0.5
-                if dists['range_up'] >= 0 and dists['range_up'] < 0.5 and target_pos[2] > data.qpos[2]:
+                if dists['range_fwd'] >= 0 and dists['range_fwd'] < 0.75: #and target_pos[0] > data.qpos[0]:
+                    # target_pos[0] = data.qpos[0]
+                    target_pos[2] += 0.25
+                if dists['range_back'] >= 0 and dists['range_back'] < 0.75: # and target_pos[0] < data.qpos[0]:
+                    # target_pos[0] = data.qpos[0] 
+                    target_pos[2] += 0.25
+                if dists['range_left'] >= 0 and dists['range_left'] < 0.75: #and target_pos[1] > data.qpos[1]:
+                    # target_pos[1] = data.qpos[1]
+                    target_pos[2] += 0.25
+                if dists['range_right'] >= 0 and dists['range_right'] < 0.75: #and target_pos[1] < data.qpos[1]:
+                    # target_pos[1] = data.qpos[1] 
+                    target_pos[2] += 0.25
+                if dists['range_up'] >= 0 and dists['range_up'] < 0.5: # and target_pos[2] > data.qpos[2]:
                     target_pos[2] = data.qpos[2] + dists['range_up'] - 0.5
-                    target_pos[1] = data.qpos[1] + 0.5
-                if dists['range_down'] >= 0 and dists['range_down'] < 0.5 and target_pos[2] < data.qpos[2]:
+                if dists['range_down'] >= 0 and dists['range_down'] < 0.5: #and target_pos[2] < data.qpos[2]:
                     target_pos[2] = data.qpos[2] - dists['range_down'] + 0.5
 
             x_des = target_pos[0] 
@@ -149,7 +157,7 @@ try:
             z_des = target_pos[2] 
 
             # x_des = 0
-            # y_des = 2
+            # y_des = 2.5
             # z_des = 1.0
 
             # PID controller
@@ -199,7 +207,7 @@ try:
             # alpha = 0.2
             # yaw_des = (1 - alpha) * yaw_prev + alpha * yaw_des  
             yaw_prev = yaw_des
-            # yaw_des = np.pi/2 # Using this to test 
+            yaw_des = 0 # Using this to test 
 
             roll_err = roll_des - roll
             pitch_err = pitch_des - pitch
