@@ -23,7 +23,6 @@ MIN_RANGE = 0.02      # metres
 def _yaw_from_quat(q):
     """
     Extract yaw angle (rotation about world Z) from a MuJoCo quaternion [w, x, y, z].
-    Returns yaw in radians.
     """
     w, x, y, z = q
     return np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
@@ -43,18 +42,8 @@ def _rotate_z(vec, yaw):
 def tof_to_world_point(drone_pos, yaw, sensor_dir, distance):
     """
     Convert a single ToF reading into a world-frame 3D point.
-
-    Parameters
-    ----------
-    drone_pos   : (3,) array  — drone XYZ in world frame
-    yaw         : float       — drone yaw in radians
-    sensor_dir  : (3,) array  — sensor ray direction in drone body frame
-    distance    : float       — range reading in metres
-
-    Returns
-    -------
-    (3,) array  — hit point in world frame, or None if out of range
     """
+
     if distance < MIN_RANGE or distance > OOR_THRESHOLD:
         return None
     world_dir = _rotate_z(sensor_dir, yaw)
@@ -134,10 +123,6 @@ class DroneMapper:
     def save(self, stem='flight_map'):
         """
         Save collected points to both .npz and .csv.
-
-        Parameters
-        ----------
-        stem : str — filename without extension (e.g. 'flight_map')
         """
         if not self.points:
             print('[mapper] No points to save.')
@@ -167,26 +152,9 @@ class DroneMapper:
             writer.writerows(self.points)
         print(f'[mapper] Saved CSV          → {csv_path}')
 
-    # Top-down 2D occupancy map 
-    def plot_topdown(
-        self,
-        output_path='flight_map_topdown.png',
-        resolution=0.05,
-        z_min=None,
-        z_max=None,
-        show=False,
-        waypoints=None,
-    ):
+    def plot_topdown(self, output_path='flight_map_topdown.png', resolution=0.05, z_min=None, z_max=None, show=False, waypoints=None,):
         """
         Generate a top-down occupancy map (bird's-eye view, X-Y plane).
-
-        Parameters
-        ----------
-        output_path : str   — where to save the PNG
-        resolution  : float — metres per pixel (smaller = finer grid)
-        z_min/z_max : float — optional Z-slice filter
-        show        : bool  — call plt.show() after saving
-        waypoints   : array — optional (N,3) waypoints to plot as markers
         """
         try:
             import matplotlib.pyplot as plt
