@@ -109,6 +109,7 @@ def display(dists, target, pos, yaw_deg, wp_i, drone_roll, drone_pitch, n_pts):
 mapper = DroneMapper()
 global _saved
 _saved = False # Guard against saving multiple times if user hits Ctrl+C more than once
+mapUpdateCounter = 0
 
 try:
     with mujoco.viewer.launch_passive(model, data) as viewer:
@@ -130,8 +131,12 @@ try:
                 name: float(data.sensordata[addr]) if addr is not None else -1.0
                 for name, addr in sensor_addrs.items()
             }
-
-            mapper.update(data, model)
+            
+            if mapUpdateCounter > 100: # Update map every 100 steps to reduce overhead
+                mapper.update(data, model)
+                mapUpdateCounter = 0
+            else:
+                mapUpdateCounter += 1
 
             # Modify current position to avoid obstacles on route to target
             for i in range(len(target_pos)):
