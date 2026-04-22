@@ -15,36 +15,38 @@ z_errPrev = 0.0
 roll_errPrev = 0.0
 pitch_errPrev = 0.0
 yaw_prev = 0.0
+yaw_cmd = 0.0
 dt = 0.0
+SPIN_RATE = 1.0
 def angle_diff(a, b):
     d = a - b
     return (d + np.pi) % (2*np.pi) - np.pi
 
 # make waypoints to fly in a 2.5x2.5 cube at intervals of 1m at z = 0.5, 1.0 and 1.5 m
 WAYPOINTS = np.array([# make waypoints to scan entire world space
-    [0, 0, 0.5],
-    [2.5,2.5,0.5],
-    [2.5, -2.5, 0.5],
-    [2.0,-2.5,0.5],
-    [2.0, 2.5, 0.5],
-    [1.5,2.5,0.5],
-    [1.5,-2.5,0.5],
-    [1.0,-2.5,0.5],
-    [1.0,2.5,0.5],
-    [0.5,2.5,0.5],
-    [0.5,-2.5,0.5],
-    [0,-2.5,0.5],
-    [0,2.5,0.5],
-    [-0.5,2.5,0.5],
-    [-0.5,-2.5,0.5],
-    [-1.0,-2.5,0.5],
-    [-1.0,2.5,0.5], 
-    [-1.5,2.5,0.5],
-    [-1.5,-2.5,0.5],    
-    [-2,-2.5,0.5],
-    [-2,2.5,0.5],
-    [-2.5,2.5,0.5],
-    [-2.5,-2.5,0.5],
+    # [0, 0, 0.5],
+    # [2.5,2.5,0.5],
+    # [2.5, -2.5, 0.5],
+    # [2.0,-2.5,0.5],
+    # [2.0, 2.5, 0.5],
+    # [1.5,2.5,0.5],
+    # [1.5,-2.5,0.5],
+    # [1.0,-2.5,0.5],
+    # [1.0,2.5,0.5],
+    # [0.5,2.5,0.5],
+    # [0.5,-2.5,0.5],
+    # [0,-2.5,0.5],
+    # [0,2.5,0.5],
+    # [-0.5,2.5,0.5],
+    # [-0.5,-2.5,0.5],
+    # [-1.0,-2.5,0.5],
+    # [-1.0,2.5,0.5], 
+    # [-1.5,2.5,0.5],
+    # [-1.5,-2.5,0.5],    
+    # [-2,-2.5,0.5],
+    # [-2,2.5,0.5],
+    # [-2.5,2.5,0.5],
+    # [-2.5,-2.5,0.5],
 
     # # ── Z = 1.5 m — safe to cross centre at this height ──
     # [ 0.0,  2.5,  1.5],   # north
@@ -52,6 +54,28 @@ WAYPOINTS = np.array([# make waypoints to scan entire world space
     # [ 0.0, -2.5,  1.5],   # south
     # [ 2.5,  0.0,  1.5],   # east
     # [ 0.0,  0.0,  1.5],   # centre cross at max height
+    [7.216449660063518e-16, 7.216449660063518e-16, 0.5],
+    [7.216449660063518e-16, 0.4000000000000002, 0.5],
+    [-0.39999999999999963, 0.8000000000000005, 0.5],
+    [-0.39999999999999963, 1.2, 0.5],
+    [7.216449660063518e-16, 1.6000000000000003, 0.5],
+    [0.4000000000000002, 1.2, 0.5],
+    [0.8000000000000005, 1.2, 0.5],
+    [1.2, 0.8000000000000005, 0.5],
+    [1.6000000000000003, 0.4000000000000002, 0.5],
+    [2.000000000000001, 7.216449660063518e-16, 0.5],
+    [2.000000000000001, 7.216449660063518e-16, 0.5],
+    [2.000000000000001, 0.4000000000000002, 0.5],
+    [2.000000000000001, 0.8000000000000005, 0.5],
+    [2.000000000000001, 1.2, 0.5],
+    [2.000000000000001, 1.6000000000000003, 0.5],
+    [2.000000000000001, 2.000000000000001, 0.5],
+    [2.000000000000001, 2.000000000000001, 0.5],
+    [1.6000000000000003, 2.000000000000001, 0.5],
+    [1.2, 2.000000000000001, 0.5],
+    [0.8000000000000005, 2.4000000000000004, 0.5],
+    [0.4000000000000002, 2.4000000000000004, 0.5],
+    [7.216449660063518e-16, 2.000000000000001, 0.5]
 ])
 
     
@@ -118,7 +142,7 @@ try:
         while viewer.is_running():
             step_start = time.time()
 
-            # # Advance waypoint when close enough - Way point navigation
+            # Advance waypoint when close enough - Way point navigation
             dist_to_wp = np.linalg.norm(data.qpos[:3] - target_pos)
             if dist_to_wp < WAYPOINT_THRESHOLD:
                 wp_idx += 1
@@ -139,17 +163,18 @@ try:
                 mapUpdateCounter += 1
 
             # Modify current position to avoid obstacles on route to target
+            OBJECT_AVOIDANCE_THRESHOLD = 0.1  # metres — if an obstacle is closer than this, adjust target
             for i in range(len(target_pos)):
-                if dists['range_fwd'] >= 0 and dists['range_fwd'] < 0.75: #and target_pos[0] > data.qpos[0]:
+                if dists['range_fwd'] >= 0 and dists['range_fwd'] < OBJECT_AVOIDANCE_THRESHOLD: #and target_pos[0] > data.qpos[0]:
                     # target_pos[0] = data.qpos[0]
                     target_pos[2] += 0.25
-                if dists['range_back'] >= 0 and dists['range_back'] < 0.75: # and target_pos[0] < data.qpos[0]:
+                if dists['range_back'] >= 0 and dists['range_back'] < OBJECT_AVOIDANCE_THRESHOLD: # and target_pos[0] < data.qpos[0]:
                     # target_pos[0] = data.qpos[0] 
                     target_pos[2] += 0.25
-                if dists['range_left'] >= 0 and dists['range_left'] < 0.75: #and target_pos[1] > data.qpos[1]:
+                if dists['range_left'] >= 0 and dists['range_left'] < OBJECT_AVOIDANCE_THRESHOLD: #and target_pos[1] > data.qpos[1]:
                     # target_pos[1] = data.qpos[1]
                     target_pos[2] += 0.25
-                if dists['range_right'] >= 0 and dists['range_right'] < 0.75: #and target_pos[1] < data.qpos[1]:
+                if dists['range_right'] >= 0 and dists['range_right'] < OBJECT_AVOIDANCE_THRESHOLD: #and target_pos[1] < data.qpos[1]:
                     # target_pos[1] = data.qpos[1] 
                     target_pos[2] += 0.25
                 if dists['range_up'] >= 0 and dists['range_up'] < 0.5: # and target_pos[2] > data.qpos[2]:
@@ -178,7 +203,7 @@ try:
             # ---- PID Parameters ----
             Kp_acc, Ki_acc, Kd_acc = 0.15, 0.01, 0.5
             Kp, Ki, Kd = 5.0, 0.00, 3.0 
-            Kp_yaw, Kd_yaw = 3, 1.0 #was 6.5 and 10
+            Kp_yaw, Kd_yaw = 5, 1.0 
 
             # PID loop for desired axis angles (roll and pitch)
             x_err = x_des - data.qpos[0]
@@ -212,7 +237,9 @@ try:
             # alpha = 0.2
             # yaw_des = (1 - alpha) * yaw_prev + alpha * yaw_des  
             yaw_prev = yaw_des
-            yaw_des = 0 # Using this to test 
+            yaw_cmd += SPIN_RATE * dt
+            yaw_des = yaw_cmd # Using this to test 
+            # yaw_des = 0
 
             roll_err = roll_des - roll
             pitch_err = pitch_des - pitch
