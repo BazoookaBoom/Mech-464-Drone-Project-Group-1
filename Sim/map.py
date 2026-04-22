@@ -14,10 +14,9 @@ SENSOR_DIRS = {
     # 'range_down': np.array([ 0.0,  0.0, -1.0]),   # floor not useful
 }
 
-OOR_THRESHOLD = 3.9   # out of range threshold metres (MuJoCo rangefinder returns max when nothing hit)
+OOR_THRESHOLD = 3.9   # Out of range threshold metres
 
-# Minimum meaningful range (avoid noise)
-MIN_RANGE = 0.02      # metres
+MIN_RANGE = 0.02 # Min range to avoid noise)
 
 
 def _yaw_from_quat(q):
