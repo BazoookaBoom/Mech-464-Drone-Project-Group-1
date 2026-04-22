@@ -15,8 +15,14 @@ WORLD_X_MAX = 5 # meters
 WORLD_Y_MIN = -5 # meters
 WORLD_Y_MAX = 5 # meters
 
+START_X = 2
+START_Y = 2
 
-Z_HEIGHT = 1 #Z that will be input in the trajectory
+END_X = 0
+END_Y = 2
+
+
+Z_HEIGHT = 0.5 #Z that will be input in the trajectory
 
 # -- helper functions --
 
@@ -129,9 +135,12 @@ def main():
 
     mark_walls(grid, map) #mark the walls on the grid
     
-    brushfire_fill(grid, 2, 2)# target
-    path = create_path(grid, 0, 0)# start
-    print(path)
+    brushfire_fill(grid, END_X, END_Y)# target
+    path = create_path(grid, START_X, START_Y)# start
+
+    waypoints = np.array([[x, y, Z_HEIGHT] for x, y in path])
+    for wp in waypoints:
+        print(f'    [{wp[0]}, {wp[1]}, {wp[2]}],')
 
 if __name__ == "__main__":
     main()

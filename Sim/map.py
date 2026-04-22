@@ -1,25 +1,8 @@
-"""
-map.py  —  Drone ToF point-cloud mapper
-============================================
-Usage (from your main.py sim loop):
-
-    from map import DroneMapper
-    mapper = DroneMapper()
-
-    # inside your while viewer.is_running() loop:
-    mapper.update(data, model)
-
-    # when done (Ctrl+C or loop exit):
-    mapper.save('flight_map')
-    mapper.plot_topdown('flight_map_topdown.png', waypoints=WAYPOINTS)
-    mapper.plot_3d(waypoints=WAYPOINTS)
-"""
-
 import numpy as np
 import csv
 from pathlib import Path
 
-# ── Sensor body-frame unit vectors ────────────────────────────────────────────
+# --- Sensor body-frame unit vectors 
 # Each ToF sensor fires a ray in a fixed direction relative to the drone body.
 # +X = forward, +Y = left, +Z = up  (standard aerospace body frame)
 SENSOR_DIRS = {
@@ -27,14 +10,13 @@ SENSOR_DIRS = {
     'range_back':  np.array([-1.0,  0.0,  0.0]),
     'range_left':  np.array([ 0.0,  1.0,  0.0]),
     'range_right': np.array([ 0.0, -1.0,  0.0]),
-    # 'range_up':   np.array([ 0.0,  0.0,  1.0]),   # disabled — traces ceiling above path
-    # 'range_down': np.array([ 0.0,  0.0, -1.0]),   # disabled — traces floor below path
+    # 'range_up':   np.array([ 0.0,  0.0,  1.0]),   # ceiling not useful
+    # 'range_down': np.array([ 0.0,  0.0, -1.0]),   # floor not useful
 }
 
-# Readings above this value are treated as out-of-range and discarded
-OOR_THRESHOLD = 3.9   # metres (MuJoCo rangefinder returns max when nothing hit)
+OOR_THRESHOLD = 3.9   # out of range threshold metres (MuJoCo rangefinder returns max when nothing hit)
 
-# Minimum meaningful range — readings below this are likely noise
+# Minimum meaningful range (avoid noise)
 MIN_RANGE = 0.02      # metres
 
 
@@ -93,7 +75,7 @@ class DroneMapper:
         self._sensor_addrs = {}
         self._model_id = None
 
-    # ── Sensor address lookup ─────────────────────────────────────────────────
+    # Sensor address lookup 
     def _build_sensor_map(self, model):
         self._sensor_addrs = {}
         for name in SENSOR_DIRS:
@@ -104,11 +86,11 @@ class DroneMapper:
                 self._sensor_addrs[name] = None
         self._model_id = id(model)
 
-    # ── Main update call (call once per sim step) ─────────────────────────────
+    # Main update call (call every mapUpdateCounter in main.py) 
     def update(self, data, model):
         """
         Read drone state + all sensor values and append hit points to self.points.
-        Call this every sim step inside your main loop.
+        Gets called in main.py according to mapUpdateCounter
         """
         if id(model) != self._model_id:
             self._build_sensor_map(model)
@@ -136,7 +118,7 @@ class DroneMapper:
                     'drone_z': float(drone_pos[2]),
                 })
 
-    # ── Properties ───────────────────────────────────────────────────────────
+    # Properties 
     @property
     def xyz(self):
         """Return all hit points as an (N, 3) numpy array."""
@@ -148,7 +130,7 @@ class DroneMapper:
     def count(self):
         return len(self.points)
 
-    # ── Save ─────────────────────────────────────────────────────────────────
+    # Save 
     def save(self, stem='flight_map'):
         """
         Save collected points to both .npz and .csv.
@@ -162,11 +144,11 @@ class DroneMapper:
             return
 
         # NPZ (compact, fast to reload)
-        npz_path  = Path(stem + '.npz')
-        arr       = self.xyz
+        npz_path = Path(stem + '.npz')
+        arr = self.xyz
         drone_xyz = np.array([[p['drone_x'], p['drone_y'], p['drone_z']] for p in self.points])
-        times     = np.array([p['time']   for p in self.points])
-        sensors   = np.array([p['sensor'] for p in self.points])
+        times = np.array([p['time']   for p in self.points])
+        sensors = np.array([p['sensor'] for p in self.points])
         np.savez_compressed(
             npz_path,
             xyz=arr,
@@ -185,7 +167,7 @@ class DroneMapper:
             writer.writerows(self.points)
         print(f'[mapper] Saved CSV          → {csv_path}')
 
-    # ── Top-down 2D occupancy map ─────────────────────────────────────────────
+    # Top-down 2D occupancy map 
     def plot_topdown(
         self,
         output_path='flight_map_topdown.png',
@@ -218,17 +200,6 @@ class DroneMapper:
 
         pts = self.xyz
 
-        # Optional Z slice
-        mask = np.ones(len(pts), dtype=bool)
-        if z_min is not None:
-            mask &= pts[:, 2] >= z_min
-        if z_max is not None:
-            mask &= pts[:, 2] <= z_max
-        pts = pts[mask]
-
-        if len(pts) == 0:
-            print('[mapper] No points in Z slice.')
-            return
 
         x, y = pts[:, 0], pts[:, 1]
 
@@ -284,7 +255,7 @@ class DroneMapper:
             z_label = f'  |  Z slice [{lo}, {hi}] m'
 
         ax.set_title(
-            f'Top-down occupancy map  —  {len(pts)} pts  |  {resolution*100:.0f} cm/cell{z_label}',
+            f'Top-down occupancy map — {len(pts)} pts',
             color='white', fontsize=11, pad=10,
         )
         ax.set_xlabel('X (m)  →  East', color='white')
@@ -302,7 +273,7 @@ class DroneMapper:
             plt.show()
         plt.close()
 
-    # ── Interactive 3D point cloud ────────────────────────────────────────────
+    # Interactive 3D point cloud 
     def plot_3d(self, point_size=2.0, waypoints=None):
         """
         Open an interactive rotatable 3D scatter plot of all hit points.
@@ -317,7 +288,7 @@ class DroneMapper:
         """
         try:
             import matplotlib.pyplot as plt
-            from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+            from mpl_toolkits.mplot3d import Axes3D
         except ImportError:
             print('[mapper] matplotlib not found — pip install matplotlib')
             return
@@ -327,12 +298,12 @@ class DroneMapper:
             return
 
         SENSOR_COLOURS = {
-            'range_fwd':   '#00e5ff',   # cyan
-            'range_back':  '#ff4081',   # pink
-            'range_left':  '#69ff47',   # green
-            'range_right': '#ffab40',   # amber
-            'range_up':    '#ea80fc',   # purple
-            'range_down':  '#ffff00',   # yellow
+            'range_fwd':   '#00e5ff',   
+            'range_back':  '#ff4081',   
+            'range_left':  '#69ff47',   
+            'range_right': '#ffab40',   
+            'range_up':    '#ea80fc',   
+            'range_down':  '#ffff00',   
         }
 
         fig = plt.figure(figsize=(12, 8))
