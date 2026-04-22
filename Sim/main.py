@@ -288,5 +288,5 @@ finally:
         print('\n[mapper] Flight ended — saving...')
         mapper.save('flight_map')
         mapper.plot_topdown('flight_map_topdown.png', resolution=0.05, waypoints=WAYPOINTS)
-        #mapper.plot_3d(waypoints=WAYPOINTS)
+        #mapper.plot_3d(waypoints=WAYPOINTS) # Not currently doing
         print('[mapper] Done.')
